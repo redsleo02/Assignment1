@@ -84,7 +84,7 @@ public class MapReduce {
      * @throws IOException
      */
     public static void reduce(String inputfilepath, String outputfilepath) throws IOException {
-    // Create a HashMap to store word counts
+        // Create a HashMap to store word counts
         Map<String, Integer> wordCounts = new HashMap<>();
 
         // Get a list of all files in the map folder
