@@ -33,24 +33,52 @@ public class MrClient {
 
    public  void requestMap(String ip, Integer portnumber, String inputfilepath, String outputfilepath) throws InterruptedException {
       
-      /* 
-      * Insert your code here 
-      * Create a stub for calling map function from the server
-      * Remember that the map function uses client stream
-      * Update the job status every time the map function finishes mapping a chunk, it is useful for calling reduce function once all of the chunks are processed by the map function
-      */
+       try {
+         StreamObserver<MapOutput> responseObserver = new StreamObserver<MapOutput>() {
+            ManagedChannel channel = ManagedChannelBuilder.forAddress(ip,portnumber).usePlaintext().build();
+            AssignJobGrpc.AssignJobStub stub = AssignJobGrpc.newStub(channel);
+            StreamObserver<MapOutput> responseObserver = new StreamObserver<>();
+            @Override
+            public void onNext(MapOutput response) {
+               if (response.getJobstatus() == 2) {
+                  System.out.println("Map task completed");
+               }
+            }
+
+            @Override
+            public void onError(Throwable t) {
+               Logger.getLogger(MrClient.class.getName()).log(Level.WARNING, "RPC failed", t);
+            }
+
+            @Override
+            public void onCompleted() {
+               System.out.println("Server is done!");
+
+            }
+         };
+
+         StreamObserver<MapInput> requestStreamObserver = blockingStub.map(responseObserver);
+         requestStreamObserver.onNext(request);
+         requestStreamObserver.onCompleted();
+      } catch (StatusRuntimeException e) {
+         Logger.getLogger(MrClient.class.getName()).log(Level.WARNING, "RPC failed: {0}", e.getStatus());
+      }
 
    }
 
    public int requestReduce(String ip, Integer portnumber, String inputfilepath, String outputfilepath) {
        
-      /* 
-      * Insert your code here 
-      * Create a stub for calling reduce function from the server
-      * Remember that the map function uses unary call
-      */
+      ReduceInput request = ReduceInput.newBuilder().setIp(ip).setPort(portnumber)
+              .setInputfilepath(inputfilepath)
+              .setOutputfilepath(outputfilepath).build();
 
-      return 0; // update this return statement
+      try {
+         ReduceOutput response = blockingStub.reduce(request);
+         return response.getJobstatus();
+      }catch (StatusRuntimeException e){
+         Logger.getLogger(MrClient.class.getName()).log(Level.WARNING, "RPC failed: {0}", e.getStatus());
+         return -1;
+      }
    }
    public static void main(String[] args) throws Exception {// update main function if required
 
