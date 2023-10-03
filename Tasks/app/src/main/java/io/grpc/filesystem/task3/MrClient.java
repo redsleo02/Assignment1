@@ -29,99 +29,84 @@ import java.io.*;
 import java.nio.charset.Charset;
 
 public class MrClient {
-   Map<String, Integer> jobStatus = new HashMap<String, Integer>();
+   Map<String, Integer> jobStatus = new HashMap<>();
 
-   public  void requestMap(String ip, Integer portnumber, String inputfilepath, String outputfilepath) throws InterruptedException {
-      
-       try {
-         StreamObserver<MapOutput> responseObserver = new StreamObserver<MapOutput>() {
-            ManagedChannel channel = ManagedChannelBuilder.forAddress(ip,portnumber).usePlaintext().build();
-            AssignJobGrpc.AssignJobStub stub = AssignJobGrpc.newStub(channel);
-            StreamObserver<MapOutput> responseObserver = new StreamObserver<>();
-            @Override
-            public void onNext(MapOutput response) {
-               if (response.getJobstatus() == 2) {
-                  System.out.println("Map task completed");
-               }
+   public void requestMap(String ip, Integer portnumber, String inputfilepath, String outputfilepath) throws InterruptedException {
+      ManagedChannel channel = ManagedChannelBuilder.forAddress(ip, portnumber).usePlaintext().build(); //channel to communicate with the gRPC server
+      AssignJobGrpc.AssignJobStub stub = AssignJobGrpc.newStub(channel); //client stub for asynchronous method
+
+      //StreamObserver to map the stream (response) from server
+      StreamObserver<MapInput> mapInputStreamObserver = stub.map(new StreamObserver<MapOutput>() {
+         @Override
+         public void onNext(MapOutput value) {
+            if (value.getJobstatus() == 2) {//jobstatus = 2
+               System.out.println("Map is completed! ");
+               jobStatus.put(inputfilepath, 2);//update status
             }
+         }
 
-            @Override
-            public void onError(Throwable t) {
-               Logger.getLogger(MrClient.class.getName()).log(Level.WARNING, "RPC failed", t);
+         @Override
+         public void onError(Throwable t) {
+            System.out.println("Error!: " + t.getMessage());
+         } //error handling
+
+         @Override
+         public void onCompleted() {
             }
+      });
 
-            @Override
-            public void onCompleted() {
-               System.out.println("Server is done!");
+      File inputFile = new File(inputfilepath); //new object from inputfilepath
+      //sending message to server (with required data).
+      MapInput mapInputMessage = MapInput.newBuilder().setInputfilepath(inputFile.getAbsolutePath())
+              .setOutputfilepath(outputfilepath)
+              .setIp(ip)
+              .setPort(portnumber)
+              .build();
 
-            }
-         };
-
-         StreamObserver<MapInput> requestStreamObserver = blockingStub.map(responseObserver);
-         requestStreamObserver.onNext(request);
-         requestStreamObserver.onCompleted();
-      } catch (StatusRuntimeException e) {
-         Logger.getLogger(MrClient.class.getName()).log(Level.WARNING, "RPC failed: {0}", e.getStatus());
-      }
-
+      mapInputStreamObserver.onNext(mapInputMessage);
+      mapInputStreamObserver.onCompleted();
+      channel.awaitTermination(5, TimeUnit.SECONDS); //terminate channel connection
    }
 
    public int requestReduce(String ip, Integer portnumber, String inputfilepath, String outputfilepath) {
-       
-      ReduceInput request = ReduceInput.newBuilder().setIp(ip).setPort(portnumber)
-              .setInputfilepath(inputfilepath)
-              .setOutputfilepath(outputfilepath).build();
+      ManagedChannel channel = ManagedChannelBuilder.forAddress(ip, portnumber).usePlaintext().build(); //channel to communicate with server
+      AssignJobGrpc.AssignJobBlockingStub stub = AssignJobGrpc.newBlockingStub(channel); //stub for communicating with server
+      ReduceInput reduceInput = ReduceInput.newBuilder().setInputfilepath(inputfilepath).setOutputfilepath(outputfilepath).build(); //reduceInput message to send to server
 
-      try {
-         ReduceOutput response = blockingStub.reduce(request);
-         return response.getJobstatus();
-      }catch (StatusRuntimeException e){
-         Logger.getLogger(MrClient.class.getName()).log(Level.WARNING, "RPC failed: {0}", e.getStatus());
-         return -1;
-      }
+      return stub.reduce(reduceInput).getJobstatus(); //return message and set status
+
    }
-   public static void main(String[] args) throws Exception {// update main function if required
 
+   public static void main(String[] args) throws Exception {// update main function if required
       String ip = args[0];
       Integer mapport = Integer.parseInt(args[1]);
       Integer reduceport = Integer.parseInt(args[2]);
       String inputfilepath = args[3];
       String outputfilepath = args[4];
-      String jobtype = null;
+
       MrClient client = new MrClient();
-      int response = 0;
+      MapReduce mr = new MapReduce();  // Assumed to be an existing utility class
 
-      MapReduce mr = new MapReduce();
-      String chunkpath = mr.makeChunks(inputfilepath);
-      Integer noofjobs = 0;
+      String chunkpath = mr.makeChunks(inputfilepath); // Method to split input into chunks
       File dir = new File(chunkpath);
-      File[] directoyListing = dir.listFiles();
-      if (directoyListing != null) {
-         for (File f : directoyListing) {
-            if (f.isFile()) {
-               noofjobs += 1;
-               client.jobStatus.put(f.getPath(), 1);
-
+      File[] directoryListing = dir.listFiles();
+      if (directoryListing != null) {
+         for (File chunkFile : directoryListing) {
+            if (chunkFile.isFile()) {
+               client.jobStatus.put(chunkFile.getPath(), 1);
+               client.requestMap(ip, mapport, chunkFile.getPath(), dir.getPath());
             }
-
          }
       }
-      client.requestMap(ip, mapport, inputfilepath, outputfilepath);
 
-      Set<Integer> values = new HashSet<Integer>(client.jobStatus.values());
-      if (values.size() == 1 && client.jobStatus.containsValue(2)) {
-
-         response = client.requestReduce(ip, reduceport, chunkpath + "/map", outputfilepath);
+      Set<Integer> uniqueStatuses = new HashSet<>(client.jobStatus.values());
+      if (uniqueStatuses.size() == 1 && client.jobStatus.containsValue(2)) {
+         int response = client.requestReduce(ip, reduceport, chunkpath, outputfilepath);
          if (response == 2) {
-
             System.out.println("Reduce task completed!");
-
          } else {
             System.out.println("Try again! " + response);
          }
-
       }
-
    }
-
 }
