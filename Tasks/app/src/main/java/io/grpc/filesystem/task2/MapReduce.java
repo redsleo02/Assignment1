@@ -54,72 +54,117 @@ public class MapReduce {
      * @param inputfilepath
      * @throws IOException
      */
-    public static void map(String inputfilepath) throws IOException {
+     public static void map(String inputfilepath) throws IOException {
+        File inputFile = new File(inputfilepath);
+        File tempMapFile = getMapFile(inputFile);
 
-        try (BufferedReader br = new BufferedReader(new FileReader(inputFilePath))) {
-        String line;
-        int chunkCount = 1;
+        List<Mapper<String, Integer>> mapperList = extractWordsFromInput(inputFile);
 
-        while ((line = br.readLine()) != null) {
-            String[] words = line.split("\\s+");
-            for (String word : words) {
-                // Filter out punctuations and non-alphanumeric characters
-                word = word.replaceAll("\\p{Punct}", "");
-                word = word.replaceAll("^[^a-zA-Z0-9]", "");
+        writeMappersToFile(tempMapFile, mapperList);
+    }
 
-                // Check if the word is not empty after filtering
-                if (!word.isEmpty()) {
-                    // Create a key-value pair with word and initial count 1
-                    Mapper.emitIntermediate(word, "1");
+
+    //get path of inputfile
+    private static File getMapFile(File inputFile) {
+        // Determine the folder for map files and create it if it doesn't exist.
+        String tempMapFolder = inputFile.getParentFile().getParent() + "/temp/map";
+        new File(tempMapFolder).mkdirs();
+
+        // Construct the name for the map file.
+        String tempMapFilename = "map-" + inputFile.getName();
+        return new File(tempMapFolder, tempMapFilename);
+    }
+
+
+    //extracting and mapping words from inputfile
+    private static List<Mapper<String, Integer>> extractWordsFromInput(File inputFile) throws IOException {
+        List<Mapper<String, Integer>> mapperList = new ArrayList<>();
+        try (BufferedReader br = new BufferedReader(new FileReader(inputFile))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] words = line.split("\\s+");
+                for (String word : words) {
+                    word = punctuation(word);
+                    if (isWordValid(word)) {
+                        mapperList.add(new Mapper<>(word, 1));
+                    } else {
+                        System.out.println(word);
+                    }
                 }
             }
         }
+        return mapperList;
     }
+
+    //removing punctuation and lowercase
+    private static String punctuation(String word) {
+        return word.replaceAll("\\p{Punct}", "").toLowerCase();
     }
+
+
+    //boolean to check if a word is valid
+    private static boolean isWordValid(String word) {
+        return word.matches("^[a-zA-Z0-9]*$") && !word.isEmpty();
+    }
+
+    //writing the mapper list to file
+    private static void writeMappersToFile(File file, List<Mapper<String, Integer>> mapperList) throws IOException {
+        try (BufferedWriter wr = new BufferedWriter(new FileWriter(file))) {
+            for (Mapper<String, Integer> mapper : mapperList) {
+                wr.write(mapper.getWord() + ":" + mapper.getValue() + "\n");
+            }
+        }
+    }
+
 
     /**
      * @param inputfilepath
      * @param outputfilepath
-     * @return
      * @throws IOException
      */
+
+
+    //Map of words and their counts
     public static void reduce(String inputfilepath, String outputfilepath) throws IOException {
-        // Create a HashMap to store word counts
+        Map<String, Integer> wordCounts = collectWordCounts(new File(inputfilepath + "/map"));
+        List<Map.Entry<String, Integer>> sortedEntries = sortWordCounts(wordCounts); //sort in order
+        writeSortedWordCountsToFile(sortedEntries, outputfilepath); //writing counted and sorted words to file
+    }
+
+    //collecting all the words within a Map.
+    private static Map<String, Integer> collectWordCounts(File mapFolder) throws IOException {
         Map<String, Integer> wordCounts = new HashMap<>();
+        for (File file : mapFolder.listFiles()) {
+            collectingWordCountsFromFile(file, wordCounts);
+        }
+        return wordCounts;
+    }
 
-        // Get a list of all files in the map folder
-        File mapFolder = new File(inputFolderPath + "/map");
-        File[] mapFiles = mapFolder.listFiles();
-
-        if (mapFiles != null) {
-            // Iterate through each map file
-            for (File mapFile : mapFiles) {
-                try (BufferedReader br = new BufferedReader(new FileReader(mapFile))) {
-                    String line;
-
-                    // Read each line and split it into key-value pairs
-                    while ((line = br.readLine()) != null) {
-                        String[] keyValue = line.split(":");
-                        if (keyValue.length == 2) {
-                            String word = keyValue[0].trim();
-                            int count = Integer.parseInt(keyValue[1].trim());
-
-                            // Update word counts in the HashMap
-                            wordCounts.put(word, wordCounts.getOrDefault(word, 0) + count);
-                        }
-                    }
-                }
+    //map with collected words from file
+    private static void collectingWordCountsFromFile(File file, Map<String, Integer> wordCounts) throws IOException {
+        try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+            String line;
+            while ((line = br.readLine()) != null) { //iteration
+                String[] keyValue = line.split(":"); //"key:value" format
+                String word = keyValue[0].trim();
+                int count = Integer.parseInt(keyValue[1].trim());
+                wordCounts.put(word, wordCounts.getOrDefault(word, 0) + count); //update and counter incrementing
             }
+        }
+    }
 
-            // Write the unique words and their counts to the output file
-            try (BufferedWriter bw = new BufferedWriter(new FileWriter(outputFilePath))) {
-                for (Map.Entry<String, Integer> entry : wordCounts.entrySet()) {
-                    String word = entry.getKey();
-                    int count = entry.getValue();
-                    String outputLine = word + ":" + count;
-                    bw.write(outputLine);
-                    bw.newLine();
-                }
+    //sorting the words
+    private static List<Map.Entry<String, Integer>> sortWordCounts(Map<String, Integer> wordCounts) {
+        List<Map.Entry<String, Integer>> sortedEntries = new ArrayList<>(wordCounts.entrySet());
+        sortedEntries.sort(Map.Entry.<String, Integer>comparingByValue().reversed()); //sort entries by value
+        return sortedEntries;
+    }
+
+    //the sorted words writing on outputfilepath
+    private static void writeSortedWordCountsToFile(List<Map.Entry<String, Integer>> sortedEntries, String outputfilepath) throws IOException {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(outputfilepath))) {
+            for (Map.Entry<String, Integer> entry : sortedEntries) {
+                writer.write(entry.getKey() + ":" + entry.getValue() + "\n"); //write key and value
             }
         }
     }
