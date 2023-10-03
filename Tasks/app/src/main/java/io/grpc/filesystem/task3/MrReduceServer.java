@@ -20,6 +20,7 @@ import io.grpc.filesystem.task2.*;
 
 public class MrReduceServer {
 
+    //handle the reducepart!
     private Server server;
 
     private void start(int port) throws IOException {
@@ -38,26 +39,36 @@ public class MrReduceServer {
         });
     }
 
+    //implementing
     static class MrReduceServerImpl extends AssignJobGrpc.AssignJobImplBase {
+        //instance for MapReduce
         MapReduce mr = new MapReduce();
 
-         @Override
-        public void reduce(ReduceInput request, StreamObserver<ReduceOutput> responseOutput){
+        @Override
+        public void reduce(ReduceInput request, StreamObserver<ReduceOutput> responseObserver) {
+            try {
+                System.out.println(request.getInputfilepath());
+                System.out.println(request.getOutputfilepath());
+                mr.reduce(request.getInputfilepath(), request.getOutputfilepath());//calling reduce method with input and output filepath
 
-            int jobStatus = mr.performReduce(request.getInputfilepath(), request.getOutputfilepath());
-            ReduceOutput response = ReduceOutput.newBuilder().setJobstatus(jobStatus).build();
+                System.out.println("Reduce: " + request.getInputfilepath() + " done");
+
+                //Building ReduceOutput with a responseMessage. (2 for success and 1 for fail)
+                ReduceOutput responseMessage = ReduceOutput.newBuilder().setJobstatus(2).build();
+                responseObserver.onNext(responseMessage); //send back to client
+            } catch (Exception e) {
+                ReduceOutput responseMessage = ReduceOutput.newBuilder().setJobstatus(1).build();
+                responseObserver.onNext(responseMessage);
+            }
+            responseObserver.onCompleted(); //client to server (sending is completed)
         }
-
     }
 
     public static void main(String[] args) throws IOException, InterruptedException {
         final MrReduceServer mrServer = new MrReduceServer();
         for (String i : args) {
-
             mrServer.start(Integer.parseInt(i));
-
         }
         mrServer.server.awaitTermination();
     }
-
 }
