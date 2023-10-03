@@ -39,51 +39,45 @@ public class MrMapServer {
     }
 
     static class MrMapServerImpl extends AssignJobGrpc.AssignJobImplBase {
-        MapReduce mr = new MapReduce();
+        MapReduce mr = new MapReduce(); //instance of MapReduce (map and reduce)
 
-         private static final Logger logger = Logger.getLogger(MrMapServer.MrMapServerImpl.class.getName());
 
-        private final Object lock = new Object();
-
-        private int count = 1;
-
-        private final List<MapInput> receivedMapInputs = new ArrayList<>();
-        private ConcurrentMap<MapInput, List<MapOutput>> mapResults = new ConcurrentHashMap<>();
-
+        //receiving messages (MapInput) and sending messages (MapOutput) via StreamObserver
         @Override
-        public StreamObserver<MapInput> map(StreamObserver<MapOutput> responseObserver){
-            return new StreamObserver<MapInput>() {
-                @Override
-                public void onNext(MapInput request) {
-                    List<MapOutput> results = performMap(request);
-                    mapResults.put(request, results);
+        public StreamObserver<MapInput> map(StreamObserver<MapOutput> mapOutputStreamObserver) {//grpc.stub library
+            System.out.println("New Map");
 
-                    MapOutput response = MapOutput.newBuilder().setJobstatus(2).build();
-                    responseObserver.onNext(response);
+            return new StreamObserver<MapInput>() {
+
+                //methods of streamObserver<V>: onNext(), onError() and onCompleted()
+                @Override
+                public void onNext(MapInput requestMessage) { //receiving message of type MapInput
+                    System.out.println("Map: " + requestMessage.getInputfilepath());
+
+                    //trying to map the request(MapInput) and sending a MapOutput-message
+                    try {
+                        MapReduce.map(requestMessage.getInputfilepath());
+                        System.out.println("Map: " + requestMessage.getInputfilepath() + " done");
+                        int chunkNumber = Integer.parseInt(new File(requestMessage.getInputfilepath()).getName().substring(5, 8));//extracting String "001" from "chunk001.txt"
+                        mapOutputStreamObserver.onNext(MapOutput.newBuilder().setJobstatus(2).build()); //2 for successful message
+                    } catch (IOException e) {
+                        System.err.println("Error during map operation: " + e.getMessage());
+                        mapOutputStreamObserver.onNext(MapOutput.newBuilder().setJobstatus(-1).build()); //-1 if it fails
+                    }
                 }
 
-
                 @Override
-                public void onError(Throwable t) {
-
+                public void onError(Throwable t) { //error handling
+                    mapOutputStreamObserver.onError(t);
+                    System.out.println("Error: " + t.getMessage());
                 }
 
                 @Override
                 public void onCompleted() {
-                    responseObserver.onCompleted();
+                    mapOutputStreamObserver.onCompleted();
                 }
             };
         }
-        private List<MapOutput> performMap(MapInput request){
-            List<MapOutput> results = new ArrayList<>();
-            for (int i = 0; i <= 12; i++) {
-                MapOutput result = MapOutput.newBuilder().setJobstatus(1).build();
-                results.add(result);
-            }
-            return results;
-        }
-
-
     }
 
     public static void main(String[] args) throws IOException, InterruptedException {
